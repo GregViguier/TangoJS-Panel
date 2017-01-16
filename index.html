@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>JS Panel</title>
+    <meta name="description" content="Basic TangoJS application template.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!--
+      Firefox ships with a broken implementation of the HTMLImports standard
+      - a polyfill has to be usedBracket​Highlighter. This patch allows to load the polyfill
+      when the dom.webcomponents.enabled flag is set to true.
+    -->
+    <link rel="stylesheet" href="node_modules/bootstrap/dist/css/bootstrap.min.css">
+    <script src="node_modules/jquery/dist/jquery.min.js"></script>
+    <script src="node_modules/bootstrap/dist/js/bootstrap.min.js"></script>
+    <script src="node_modules/html-imports-firefox-patch/patch.js"></script>
+    <script src="node_modules/webcomponents.js/HTMLImports.js"></script>
+    <!-- Dependencies required if you plan to use the tangojs-trend. -->
+    <!--
+    <script src="node_modules/moment/min/moment.min.js"></script>
+    <script src="node_modules/chart.js/dist/Chart.min.js"></script>
+  -->
+    <!-- TangoJS stack. -->
+    <script src="node_modules/tangojs-core/lib/tangojs-core.js"></script>
+    <script src="node_modules/tangojs-connector-local/lib/tangojs-connector-local.js"></script>
+    <script src="node_modules/tangojs-connector-mtango/lib/tangojs-connector-mtango.js"></script>
+    <script src="node_modules/tangojs-connector-local/lib/demo-model.js"></script>
+    <script src="node_modules/tangojs-web-components/dist/tangojs-web-components.js"></script>
+    <script src="node_modules/tangojs-web-components/node_modules/moment/min/moment.min.js"></script>
+    <script src="node_modules/tangojs-web-components/node_modules/chart.js/dist/Chart.min.js"></script>
+    <!-- Include desired widgets. -->
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-label.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-line-edit.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-command-button.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-state-led.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-trend.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-chart.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-form.html">
+    <link rel="import" href="node_modules/tangojs-web-components/dist/components/tangojs-device-tree.html">
+    <!--
+      Configure your connector here. Connector is the component responsible for
+      communication with TANGO infrastructure. For testing purposes a simple,
+      in-memory, mocked implementation is configured here.
+      Learn more about available connectors at <https://tangojs.github.io>.
+    -->
+    <script type="text/javascript">
+        (function(window) {
+            'use strict'
+            // Setup real tango connector
+            let user = 'tango';
+            let password = 'secret';
+            const conn = new window.tangojs.connector.mtango.MTangoConnector('http://192.168.99.100:8080/rest/rc3',
+                '192.168.99.100', '20001', user, password);
+            // Bind desired connector to TangoJS API.
+            window.tangojs.core.setConnector(conn);
+        })(window)
+    </script>
+    <style>
+        /* You can style the components using standard CSS selectors. */
+        
+        tangojs-trend {
+            width: 800px;
+            height: 600px;
+            display: block;
+            padding-bottom: 10px;
+        }
+        
+        tangojs-chart {
+            width: 800px;
+            height: 600px;
+            display: block;
+            padding-bottom: 10px;
+        }
+        
+        tangojs-line-edit {
+            display: block;
+            width: 600px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="#">JS Panel</a>
+                </div>
+                <ul class="nav navbar-nav">
+                    <li class="active"><a href="#scalar">Scalar</a></li>
+                    <li><a href="#spectrum">Spectrum</a></li>
+                    <li><a href="#image">Image</a></li>
+                </ul>
+                <form class="navbar-form navbar-left">
+                    <div class="input-group">
+                        <input type="text" class="form-control" value="sys/tg_test/1" placeholder="Search" id="input-model">
+                        <div class="input-group-btn">
+                            <button class="btn btn-default" type="button" onclick="myFunction()">
+                                <i class="glyphicon glyphicon-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </nav>
+        <div class="row">
+            <div class="col-md-12"></div>
+            <div id='statusPanel'></div>
+        </div>
+
+        <table class="table-striped" id="scalarTable">
+            <tbody></tbody>
+        </table>
+        <div id='spectrumPanel'></div>
+        <div id='imagePanel'></div>
+    </div>
+
+    <script type="text/javascript">
+        // TANGO Constants
+        let SCALAR = window.tangojs.core.tango.AttrDataFormat.SCALAR;
+        let SPECTRUM = window.tangojs.core.tango.AttrDataFormat.SPECTRUM;
+        let IMAGE = window.tangojs.core.tango.AttrDataFormat.IMAGE;
+        // 
+        let scalarPanel = ""
+        let spectrumPanel = "";
+
+        // update selection on tab click
+        $(".nav a").on("click", function() {
+            $(".nav").find(".active").removeClass("active");
+            $(this).parent().addClass("active");
+        });
+
+        function buildPanels(model) {
+            $("#statusPanel").empty();
+            $("#statusPanel").append("<tangojs-label show-name=true model='" + model +
+                "/" + "status" + "'></tangojs-label>");
+            scalarPanel = "";
+            spectrumPanel = "";
+            let devProxy = new window.tangojs.core.api.DeviceProxy(model);
+            devProxy.get_attribute_list().then(function(attributes) {
+                devProxy.get_attribute_info(attributes).then(function(attributes_info) {
+                    for (i = 0; i < attributes_info.length; i++) {
+                        let attribute_info = attributes_info[i];
+                        switch (attribute_info.data_format) {
+                            case SCALAR:
+                                scalarPanel = scalarPanel.concat(
+                                    "<tr><td><tangojs-line-edit show-name=true model='" + model +
+                                    "/" + attribute_info.name + "'></tangojs-line-edit></td></tr>");
+                                break
+                            case SPECTRUM:
+                                spectrumPanel = spectrumPanel.concat(
+                                    "<tangojs-chart model='" + model +
+                                    "/" + attribute_info.name +
+                                    "'></tangojs-chart>");
+                                break
+                            case IMAGE:
+                                console.log("IMAGE")
+                                break
+                        }
+                    }
+                    $(".nav").find(".active").removeClass("active");
+                    $("a[href$='#scalar']").addClass("active");
+                    showAttributes("scalar");
+                });
+            });
+        }
+
+        $(document).ready(function() {
+            $('a[href="#image"]').click(function() {
+                showAttributes("image")
+            });
+            $('a[href="#spectrum"]').click(function() {
+                showAttributes("spectrum")
+            });
+            $('a[href="#scalar"]').click(function() {
+                showAttributes("scalar")
+            });
+        });
+
+        function myFunction() {
+            let inputedmodel = $("#input-model").val();
+            $("#spectrumPanel").empty()
+            $("#scalarTable tbody").empty()
+            buildPanels(inputedmodel);
+        }
+
+        function showAttributes(type) {
+            $("#spectrumPanel").empty()
+            $("#scalarTable tbody").empty()
+            switch (type) {
+                case "scalar":
+                    console.log("showAttributes : SCALAR")
+                    $("#scalarTable tbody").append(scalarPanel)
+                    break
+                case "spectrum":
+                    console.log("showAttributes : SPECTRUM")
+                    $("#spectrumPanel").append(spectrumPanel)
+                    break
+            }
+        }
+    </script>
+</body>
+
+</html>
